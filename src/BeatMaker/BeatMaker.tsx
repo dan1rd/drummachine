@@ -14,13 +14,40 @@ import { sound } from '@pixi/sound';
 interface Step {
   uid: number;
   index: number;
-  sample: Sample;
   isToggled: boolean;
 }
 
-type Sample = 'kick' | 'hat' | 'snare' | 'cymbal';
 type StepRow = Step[];
-type Sequencer = StepRow[];
+
+interface Sequencer {
+  kick: {
+    steps: StepRow;
+    volume: number;
+  };
+  hat: {
+    steps: StepRow;
+    volume: number;
+  };
+  snare: {
+    steps: StepRow;
+    volume: number;
+  };
+  cymbal: {
+    steps: StepRow;
+    volume: number;
+  };
+}
+
+const theme = {
+  bodyBG: '#07040C',
+  stepBG: '#130E19',
+  dark: '#050308',
+  gradientOne: '#C68BEB',
+  gradientTwo: '#D358F1',
+  stroke: '#22182D',
+};
+
+type SequencerKey = keyof Sequencer;
 
 const BeatMaker = () => {
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -29,40 +56,133 @@ const BeatMaker = () => {
     const app = new Application();
     (globalThis as any).__PIXI_APP__ = app;
 
-    let bpm = 380;
+    const sequencerData: Sequencer = {
+      kick: { steps: [], volume: 0.5 },
+      hat: { steps: [], volume: 0.5 },
+      snare: { steps: [], volume: 0.5 },
+      cymbal: { steps: [], volume: 0.5 },
+    };
 
-    const sequencerData: Sequencer = [];
-    const totalBeats = 8;
-    const totalMS = (totalBeats / (bpm / 60)) * 1000;
-    const fractionMS = totalMS / totalBeats;
+    /* Timing Options */
+    let bpm = 200;
+    const totalSteps = 8;
+    const totalMS = (totalSteps / (bpm / 60)) * 1000;
+    const fractionMS = totalMS / totalSteps;
 
-    let isPlaying = false;
     let currentStep = 0;
+    let currentTimeMS = 0;
     let msUntilNextBeat = fractionMS;
+    /* */
 
+    /* Other Variables */
+    const stepSize = 64;
+    /* */
+
+    let ticker: Ticker | null = null;
     function main() {
       canvasContainerRef.current?.appendChild(app.canvas);
-      togglePlayback();
 
-      const sequencer = createSequencer([
+      ticker = new Ticker();
+      ticker.add(tick);
+      ticker.stop();
+
+      /*
+       *-=-=-=-=-=-=-=-=-
+       *   Sequencer
+       *-=-=-=-=-=-=-=-=-
+       */
+      const sequencerContainer = new Container();
+      sequencerContainer.label = 'sequencer-container';
+
+      const stepsRows = [
         createStepsRow(8, 'kick'),
         createStepsRow(8, 'hat'),
         createStepsRow(8, 'snare'),
         createStepsRow(8, 'cymbal'),
-      ]);
-
-      app.stage.addChild(sequencer);
-    }
-
-    function createSequencer(stepsContainer: Container[]) {
-      const sequencerContainer = new Container();
-
-      stepsContainer.forEach((container, i) => {
+      ];
+      stepsRows.forEach((container, i) => {
         container.y = (container.height + 16) * i;
         sequencerContainer.addChild(container);
       });
 
-      return sequencerContainer;
+      const playheadSize = 24;
+      const timelineContainer = new Container();
+      timelineContainer.label = 'timeline-container';
+
+      const timelineBar = new Graphics()
+        .roundRect(0, playheadSize / 2, sequencerContainer.width, 10)
+        .fill(theme.stroke);
+      timelineBar.label = 'timeline-bar';
+
+      const playhead = new Graphics()
+        .rect(playheadSize / 2, -(playheadSize / 2), playheadSize, playheadSize)
+        .fill(
+          createGradient(
+            [theme.gradientOne, theme.gradientTwo],
+            { x: 0, y: 0 },
+            { x: playheadSize, y: playheadSize }
+          )
+        );
+      playhead.label = 'playhead';
+      playhead.rotation = Math.PI / 4;
+
+      timelineContainer.addChild(timelineBar);
+      timelineContainer.addChild(playhead);
+      timelineContainer.y = sequencerContainer.height + 60;
+
+      sequencerContainer.x = app.screen.width - sequencerContainer.width - 20;
+      sequencerContainer.y = 16;
+      sequencerContainer.addChild(timelineContainer);
+
+      app.stage.addChild(sequencerContainer);
+
+      /*
+       *-=-=-=-=-=-=-=-=-
+       *   Controls
+       *-=-=-=-=-=-=-=-=-
+       */
+
+      const controlsContainer = new Container();
+
+      // const button = new Graphics().rect(app.screen.width - 20, 0, 20, 20).fill(theme.stroke);
+      // app.stage.addChild(button);
+      // button.interactive = true;
+      // button.cursor = 'pointer';
+      // button.on('pointerdown', () => {
+      //   togglePlayback();
+      // });
+
+      function togglePlayback() {
+        if (!ticker?.started) {
+          ticker?.start();
+        } else {
+          ticker?.stop();
+        }
+      }
+
+      function tick(delta: Ticker) {
+        msUntilNextBeat -= delta.deltaMS;
+        currentTimeMS += delta.deltaMS;
+        if (msUntilNextBeat <= 0) {
+          msUntilNextBeat = fractionMS;
+
+          if (currentStep === totalSteps - 1) {
+            currentStep = 0;
+            currentTimeMS = 0;
+          } else {
+            currentStep++;
+          }
+
+          for (const key in sequencerData) {
+            const sample = key as keyof Sequencer;
+            if (sequencerData[sample].steps[currentStep].isToggled) {
+              sound.play(sample);
+            }
+          }
+        }
+
+        playhead.position.x = (currentTimeMS / totalMS) * (timelineBar.width - playheadSize);
+      }
     }
 
     function createStep(
@@ -72,10 +192,13 @@ const BeatMaker = () => {
       isIndicatorGlowing: boolean = false
     ) {
       const stepContainer = new Container();
+      stepContainer.label = 'step-container';
 
-      const stepGraphic = new Graphics()
+      const stepBackground = new Graphics()
         .roundRect(0, 0, size, size, 8)
         .fill({ color: backgroundColor });
+      stepBackground.label = 'step-background';
+
       const indicatorSize = { width: size / 2, height: 6 };
       const indicatorGradient = createGradient(
         indicatorGradientColors,
@@ -85,13 +208,15 @@ const BeatMaker = () => {
       const toggleIndicator = new Graphics()
         .roundRect(indicatorSize.width / 2, 10, size / 2, indicatorSize.height)
         .fill(indicatorGradient);
+      toggleIndicator.label = 'toggle-indicator';
 
-      stepContainer.addChild(stepGraphic);
+      stepContainer.addChild(stepBackground);
 
       if (isIndicatorGlowing) {
         const toggleIndicatorGlow = new Graphics()
           .roundRect(indicatorSize.width / 2, 10, size / 2, indicatorSize.height)
           .fill(indicatorGradient);
+        toggleIndicatorGlow.label = 'toggle-indicator-glow';
 
         const indicatorGlowFilter = new BlurFilter();
         indicatorGlowFilter.blur = 10;
@@ -104,19 +229,20 @@ const BeatMaker = () => {
       return stepContainer;
     }
 
-    function createStepsRow(stepsCount: number, sample: Sample) {
+    function createStepsRow(stepsCount: number, sample: SequencerKey) {
       const stepsContainer = new Container();
+      stepsContainer.label = 'steps-container';
+
       const stepsData: StepRow = [];
-      const size = 64;
 
       for (let i = 0; i < stepsCount; i++) {
-        const singleStepContainer = createStep(size, '#130E19', ['#050308']);
-        singleStepContainer.position.x = (size + 16) * i;
+        const singleStepContainer = createStep(stepSize, theme.stepBG, [theme.dark]);
+        singleStepContainer.position.x = (stepSize + 16) * i;
         singleStepContainer.interactive = true;
         singleStepContainer.cursor = 'pointer';
 
         stepsContainer.addChild(singleStepContainer);
-        stepsData.push({ sample, index: i, isToggled: false, uid: singleStepContainer.uid });
+        stepsData.push({ index: i, isToggled: false, uid: singleStepContainer.uid });
       }
 
       stepsContainer.interactive = true;
@@ -130,9 +256,14 @@ const BeatMaker = () => {
 
         let newStep: ContainerChild | null;
         if (newToggleState === true) {
-          newStep = createStep(size, '#22182D', ['#DCDCDC', '#B3B3B3'], true);
+          newStep = createStep(
+            stepSize,
+            theme.stroke,
+            [theme.gradientOne, theme.gradientTwo],
+            true
+          );
         } else {
-          newStep = createStep(size, '#130E19', ['#050308']);
+          newStep = createStep(stepSize, theme.stepBG, [theme.dark]);
         }
 
         if (currentStepDataIndex !== -1) {
@@ -143,14 +274,13 @@ const BeatMaker = () => {
           };
         }
 
-        console.log(stepsData);
         newStep.interactive = true;
         newStep.cursor = 'pointer';
         newStep.position.x = posX;
         stepsContainer.addChild(newStep);
       });
 
-      sequencerData.push(stepsData);
+      sequencerData[sample].steps = stepsData;
       return stepsContainer;
     }
 
@@ -169,45 +299,18 @@ const BeatMaker = () => {
       return gradientFill;
     }
 
-    function tick(delta: Ticker) {
-      msUntilNextBeat -= delta.deltaMS;
-      if (msUntilNextBeat <= 0) {
-        msUntilNextBeat = fractionMS;
-
-        if (currentStep === totalBeats - 1) {
-          currentStep = 0;
-        } else {
-          currentStep++;
-        }
-
-        sequencerData.forEach((sampleData) => {
-          if (sampleData[currentStep].isToggled) {
-            sound.play(sampleData[currentStep].sample);
-          }
-        });
-      }
+    function stopTicker() {
+      ticker?.stop();
     }
 
-    function togglePlayback() {
-      bpm = 300; // todo
-
-      isPlaying = !isPlaying;
-      if (isPlaying) {
-        app.ticker?.add(tick);
-      } else {
-        app.ticker?.remove(tick);
-      }
-    }
-
-    function stopPlayback() {
-      isPlaying = false;
-      app.ticker?.remove(tick);
-    }
-
-    window.addEventListener('focus', stopPlayback);
-    app.init({ background: '#050308', width: 900, height: 442 }).then(() => main());
+    window.addEventListener('focusout', stopTicker);
+    window.addEventListener('visibilitychange', stopTicker);
+    window.addEventListener('blur', stopTicker);
+    app.init({ background: theme.bodyBG, width: 900, height: 442 }).then(() => main());
     return () => {
-      window.removeEventListener('focus', stopPlayback);
+      window.removeEventListener('focusout', stopTicker);
+      window.removeEventListener('visibilitychange', stopTicker);
+      window.removeEventListener('blur', stopTicker);
       app?.stop();
       app?.destroy(true, true);
     };
