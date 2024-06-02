@@ -7,9 +7,12 @@ import {
   Ticker,
   BlurFilter,
   ContainerChild,
+  Assets,
+  Sprite,
 } from 'pixi.js';
 import { useEffect, useRef } from 'react';
 import { sound } from '@pixi/sound';
+import { Slider } from '@pixi/ui';
 
 interface Step {
   uid: number;
@@ -32,7 +35,7 @@ interface Sequencer {
     steps: StepRow;
     volume: number;
   };
-  cymbal: {
+  shake: {
     steps: StepRow;
     volume: number;
   };
@@ -60,7 +63,7 @@ const BeatMaker = () => {
       kick: { steps: [], volume: 0.5 },
       hat: { steps: [], volume: 0.5 },
       snare: { steps: [], volume: 0.5 },
-      cymbal: { steps: [], volume: 0.5 },
+      shake: { steps: [], volume: 0.5 },
     };
 
     /* Timing Options */
@@ -74,17 +77,24 @@ const BeatMaker = () => {
     let msUntilNextBeat = fractionMS;
     /* */
 
-    /* Other Variables */
     const stepSize = 64;
-    /* */
 
     let ticker: Ticker | null = null;
-    function main() {
+    async function main() {
       canvasContainerRef.current?.appendChild(app.canvas);
 
       ticker = new Ticker();
       ticker.add(tick);
       ticker.stop();
+
+      /*
+        Load Assets
+      */
+
+      const kickTexture = await Assets.load('src/assets/kick.webp');
+      const hiHatTexture = await Assets.load('src/assets/hi-hat.webp');
+      const snareTexture = await Assets.load('src/assets/snare.webp');
+      const shakerTexture = await Assets.load('src/assets/shaker.webp');
 
       /*
        *-=-=-=-=-=-=-=-=-
@@ -98,7 +108,7 @@ const BeatMaker = () => {
         createStepsRow(8, 'kick'),
         createStepsRow(8, 'hat'),
         createStepsRow(8, 'snare'),
-        createStepsRow(8, 'cymbal'),
+        createStepsRow(8, 'shake'),
       ];
       stepsRows.forEach((container, i) => {
         container.y = (container.height + 16) * i;
@@ -143,14 +153,37 @@ const BeatMaker = () => {
        */
 
       const controlsContainer = new Container();
+      controlsContainer.label = 'controls-container';
 
-      // const button = new Graphics().rect(app.screen.width - 20, 0, 20, 20).fill(theme.stroke);
-      // app.stage.addChild(button);
-      // button.interactive = true;
-      // button.cursor = 'pointer';
-      // button.on('pointerdown', () => {
-      //   togglePlayback();
-      // });
+      const kickSampleIcon = Sprite.from(kickTexture);
+      const hatSampleIcon = Sprite.from(hiHatTexture);
+      const snareSampleIcon = Sprite.from(snareTexture);
+      const shakerSampleIcon = Sprite.from(shakerTexture);
+
+      [
+        createSlider('kick', 0.0, 1.0, kickSampleIcon),
+        createSlider('hat', 0.0, 1.0, hatSampleIcon),
+        createSlider('snare', 0.0, 1.0, snareSampleIcon),
+        createSlider('shake', 0.0, 1.0, shakerSampleIcon),
+      ].forEach((slider, index) => {
+        controlsContainer.addChild(slider);
+        slider.y = (stepSize + 18) * index;
+      });
+
+      // const playControlsContainer = new Container();
+
+      controlsContainer.y = stepSize / 2;
+      controlsContainer.x = 24;
+
+      app.stage.addChild(controlsContainer);
+
+      const button = new Graphics().rect(0, app.screen.height - 20, 20, 20).fill(theme.stroke);
+      app.stage.addChild(button);
+      button.interactive = true;
+      button.cursor = 'pointer';
+      button.on('pointerdown', () => {
+        togglePlayback();
+      });
 
       function togglePlayback() {
         if (!ticker?.started) {
@@ -176,13 +209,56 @@ const BeatMaker = () => {
           for (const key in sequencerData) {
             const sample = key as keyof Sequencer;
             if (sequencerData[sample].steps[currentStep].isToggled) {
-              sound.play(sample);
+              sound.play(sample, { volume: sequencerData[sample].volume });
             }
           }
         }
 
         playhead.position.x = (currentTimeMS / totalMS) * (timelineBar.width - playheadSize);
       }
+    }
+
+    function createSlider(sample: SequencerKey, min: number, max: number, icon: Sprite) {
+      const sliderContainer = new Container();
+      sliderContainer.label = 'slider-container';
+
+      const sliderFill = new Graphics()
+        .roundRect(0, 0, 150, 16, 2)
+        .fill(
+          createGradient([theme.gradientOne, theme.gradientTwo], { x: 0, y: 0 }, { x: 150, y: 0 })
+        );
+
+      const sliderBg = new Graphics().roundRect(0, 0, 150, 16, 2).fill(theme.stroke);
+      const slider = new Graphics();
+      const sliderControl = new Slider({
+        fill: sliderFill,
+        bg: sliderBg,
+        value: max / 2,
+        min,
+        max,
+        slider,
+      });
+
+      icon.scale = 0.4;
+      sliderControl.y = icon.height / 2 - sliderControl.height / 2;
+
+      icon.alpha = 1;
+      sliderControl.onUpdate.connect((value) => {
+        sequencerData[sample].volume = value;
+        icon.alpha = Math.max(Math.min(value + 0.5, 1), 0.2);
+      });
+
+      sliderBg.cursor = 'pointer';
+      sliderFill.cursor = 'pointer';
+
+      sliderContainer.addChild(sliderControl);
+
+      sliderContainer.addChild(icon);
+      icon.anchor = 0.5;
+      icon.y = icon.height / 2;
+      icon.x = icon.width / 2 + sliderControl.width + 20;
+
+      return sliderContainer;
     }
 
     function createStep(
