@@ -3,3 +3,8 @@ body {
   height: 100vh;
   width: 100%;
 }
+
+.beatmaker {
+  display: flex;
+  justify-content: center;
+}
