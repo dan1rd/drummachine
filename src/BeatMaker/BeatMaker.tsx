@@ -61,7 +61,6 @@ const BeatMaker = () => {
     (globalThis as any).__PIXI_APP__ = app;
     let bpm = 200;
     let currentStep = 0;
-    let currentTimeMS = 0;
     const totalSteps = 8;
     let totalMS = (totalSteps / (bpm / 60)) * 1000;
     let fractionMS = totalMS / totalSteps;
@@ -92,6 +91,9 @@ const BeatMaker = () => {
       const hiHatTexture = await Assets.load('src/assets/hi-hat.webp');
       const snareTexture = await Assets.load('src/assets/snare.webp');
       const shakerTexture = await Assets.load('src/assets/shaker.webp');
+      const playIconTexture = await Assets.load('src/assets/play.webp');
+      const pauseIconTexture = await Assets.load('src/assets/pause.webp');
+      const bpmIconTexture = await Assets.load('src/assets/BPM.webp');
 
       /*
        *-=-=-=-=-=-=-=-=-
@@ -140,10 +142,10 @@ const BeatMaker = () => {
 
       timelineContainer.addChild(timelineBar);
       timelineContainer.addChild(playhead);
-      timelineContainer.y = sequencerContainer.height + 60;
+      timelineContainer.y = sequencerContainer.height + 50;
 
       sequencerContainer.x = app.screen.width - sequencerContainer.width - 20;
-      sequencerContainer.y = 16;
+      sequencerContainer.y = 32;
       sequencerContainer.addChild(timelineContainer);
 
       app.stage.addChild(sequencerContainer);
@@ -177,15 +179,18 @@ const BeatMaker = () => {
       const bpmSliderContainer = new Container();
       bpmSliderContainer.label = 'bpm-slider-container';
 
+      const playControlButtonsHeight = 50;
       const bpmSliderFill = new Graphics()
-        .roundRect(0, 0, 125, 40, 2)
-        .fill(theme.stroke)
-        .stroke(theme.bodyBG);
+        .rect(0, 0, 115, playControlButtonsHeight)
+        .fill(theme.stroke);
 
       const bpmSliderBg = new Graphics()
-        .roundRect(0, 0, 125, 40, 2)
+        .rect(0, 0, 115, playControlButtonsHeight)
         .fill(theme.bodyBG)
         .stroke(theme.stroke);
+
+      bpmSliderBg.cursor = 'pointer';
+      bpmSliderFill.cursor = 'pointer';
 
       const bpmSlider = new Graphics();
       const bpmSliderControl = new Slider({
@@ -199,30 +204,64 @@ const BeatMaker = () => {
 
       bpmSliderControl.onUpdate.connect((value) => {
         bpm = value;
-        console.log(bpm);
       });
 
       bpmSliderContainer.addChild(bpmSliderControl);
-      bpmSliderContainer.y = app.screen.height - 40 - bpmSliderContainer.height;
+      bpmSliderContainer.pivot.set(0, playControlButtonsHeight / 2);
+      bpmSliderContainer.y = playControlButtonsHeight / 2;
+      bpmSliderContainer.x = 0;
 
       playControlsContainer.addChild(bpmSliderContainer);
 
+      const bpmIcon = Sprite.from(bpmIconTexture);
+      bpmIcon.scale = 0.5;
+      bpmIcon.pivot.set(bpmIcon.width / 2, bpmIcon.height / 2);
+      bpmIcon.x = bpmSliderContainer.width / 2 - bpmIcon.width / 4;
+      bpmIcon.y = bpmSliderContainer.height / 2 - bpmIcon.height / 4;
+      bpmSliderContainer.addChild(bpmIcon);
+
       controlsContainer.addChild(playControlsContainer);
 
-      controlsContainer.y = stepSizePx / 2;
+      controlsContainer.y = 48;
       controlsContainer.x = 24;
 
       app.stage.addChild(controlsContainer);
 
-      const button = new Graphics().rect(0, app.screen.height - 20, 20, 20).fill(theme.stroke);
-      app.stage.addChild(button);
-      button.interactive = true;
-      button.cursor = 'pointer';
-      button.on('pointerdown', () => {
+      const playButtonContainer = new Container();
+      const playButton = new Graphics()
+        .rect(0, 0, 86, playControlButtonsHeight)
+        .fill(theme.bodyBG)
+        .stroke(theme.stroke);
+
+      const playIcon = Sprite.from(playIconTexture);
+      const pauseIcon = Sprite.from(pauseIconTexture);
+      playButtonContainer.addChild(playButton);
+      playButtonContainer.addChild(playIcon);
+      playButtonContainer.addChild(pauseIcon);
+      playControlsContainer.addChild(playButtonContainer);
+
+      pauseIcon.visible = false;
+      playIcon.scale = 0.33;
+      pauseIcon.scale = 0.33;
+
+      playControlsContainer.y = 318;
+      playButtonContainer.x = bpmSliderContainer.width + 6;
+
+      playIcon.x = playButtonContainer.width / 4;
+      playIcon.y = playButtonContainer.height / 4;
+      pauseIcon.x = playButtonContainer.width / 4;
+      pauseIcon.y = playButtonContainer.height / 4;
+
+      playButton.interactive = true;
+      playButton.cursor = 'pointer';
+      playButton.on('pointerdown', () => {
         togglePlayback();
       });
 
       function togglePlayback() {
+        playIcon.visible = !playIcon.visible;
+        pauseIcon.visible = !pauseIcon.visible;
+
         if (!ticker?.started) {
           ticker?.start();
         } else {
@@ -234,14 +273,12 @@ const BeatMaker = () => {
         totalMS = (totalSteps / (bpm / 60)) * 1000;
         fractionMS = totalMS / totalSteps;
         msUntilNextBeat -= delta.deltaMS;
-        currentTimeMS += delta.deltaMS;
 
         if (msUntilNextBeat <= 0) {
           msUntilNextBeat = fractionMS;
 
           if (currentStep === totalSteps - 1) {
             currentStep = 0;
-            currentTimeMS = 0;
             gsap.to(playhead, {
               x: 0,
               duration: 0.1,
@@ -249,8 +286,8 @@ const BeatMaker = () => {
           } else {
             currentStep++;
             gsap.to(playhead, {
-              x: playhead.x + stepSizePx + 16,
-              duration: 0.2,
+              x: (stepSizePx + 16) * currentStep,
+              duration: Math.min(500 / bpm, 0.2),
             });
           }
 
