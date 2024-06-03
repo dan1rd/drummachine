@@ -13,6 +13,7 @@ import {
 import { useEffect, useRef } from 'react';
 import { sound } from '@pixi/sound';
 import { Slider } from '@pixi/ui';
+import gsap from 'gsap';
 
 interface Step {
   uid: number;
@@ -58,6 +59,15 @@ const BeatMaker = () => {
   useEffect(() => {
     const app = new Application();
     (globalThis as any).__PIXI_APP__ = app;
+    let bpm = 200;
+    let currentStep = 0;
+    let currentTimeMS = 0;
+    const totalSteps = 8;
+    let totalMS = (totalSteps / (bpm / 60)) * 1000;
+    let fractionMS = totalMS / totalSteps;
+    let msUntilNextBeat = fractionMS;
+
+    const stepSizePx = 64;
 
     const sequencerData: Sequencer = {
       kick: { steps: [], volume: 0.5 },
@@ -65,19 +75,6 @@ const BeatMaker = () => {
       snare: { steps: [], volume: 0.5 },
       shake: { steps: [], volume: 0.5 },
     };
-
-    /* Timing Options */
-    let bpm = 200;
-    const totalSteps = 8;
-    const totalMS = (totalSteps / (bpm / 60)) * 1000;
-    const fractionMS = totalMS / totalSteps;
-
-    let currentStep = 0;
-    let currentTimeMS = 0;
-    let msUntilNextBeat = fractionMS;
-    /* */
-
-    const stepSize = 64;
 
     let ticker: Ticker | null = null;
     async function main() {
@@ -120,12 +117,12 @@ const BeatMaker = () => {
       timelineContainer.label = 'timeline-container';
 
       const timelineBar = new Graphics()
-        .roundRect(0, playheadSize / 2, sequencerContainer.width, 10)
+        .roundRect(0, 0, sequencerContainer.width - stepSizePx, 10)
         .fill(theme.stroke);
       timelineBar.label = 'timeline-bar';
 
       const playhead = new Graphics()
-        .rect(playheadSize / 2, -(playheadSize / 2), playheadSize, playheadSize)
+        .rect(0, -0, playheadSize, playheadSize)
         .fill(
           createGradient(
             [theme.gradientOne, theme.gradientTwo],
@@ -134,7 +131,12 @@ const BeatMaker = () => {
           )
         );
       playhead.label = 'playhead';
+
+      playhead.pivot.set(playhead.width / 2, playhead.height / 2);
+      playhead.y = playhead.height / 4;
       playhead.rotation = Math.PI / 4;
+
+      timelineContainer.x = stepSizePx / 2;
 
       timelineContainer.addChild(timelineBar);
       timelineContainer.addChild(playhead);
@@ -161,18 +163,53 @@ const BeatMaker = () => {
       const shakerSampleIcon = Sprite.from(shakerTexture);
 
       [
-        createSlider('kick', 0.0, 1.0, kickSampleIcon),
-        createSlider('hat', 0.0, 1.0, hatSampleIcon),
-        createSlider('snare', 0.0, 1.0, snareSampleIcon),
-        createSlider('shake', 0.0, 1.0, shakerSampleIcon),
+        createVolumeSlider('kick', 0.0, 1.0, kickSampleIcon),
+        createVolumeSlider('hat', 0.0, 1.0, hatSampleIcon),
+        createVolumeSlider('snare', 0.0, 1.0, snareSampleIcon),
+        createVolumeSlider('shake', 0.0, 1.0, shakerSampleIcon),
       ].forEach((slider, index) => {
         controlsContainer.addChild(slider);
-        slider.y = (stepSize + 18) * index;
+        slider.y = (stepSizePx + 18) * index;
       });
 
-      // const playControlsContainer = new Container();
+      const playControlsContainer = new Container();
 
-      controlsContainer.y = stepSize / 2;
+      const bpmSliderContainer = new Container();
+      bpmSliderContainer.label = 'bpm-slider-container';
+
+      const bpmSliderFill = new Graphics()
+        .roundRect(0, 0, 125, 40, 2)
+        .fill(theme.stroke)
+        .stroke(theme.bodyBG);
+
+      const bpmSliderBg = new Graphics()
+        .roundRect(0, 0, 125, 40, 2)
+        .fill(theme.bodyBG)
+        .stroke(theme.stroke);
+
+      const bpmSlider = new Graphics();
+      const bpmSliderControl = new Slider({
+        fill: bpmSliderFill,
+        bg: bpmSliderBg,
+        value: 180,
+        min: 60,
+        max: 500,
+        slider: bpmSlider,
+      });
+
+      bpmSliderControl.onUpdate.connect((value) => {
+        bpm = value;
+        console.log(bpm);
+      });
+
+      bpmSliderContainer.addChild(bpmSliderControl);
+      bpmSliderContainer.y = app.screen.height - 40 - bpmSliderContainer.height;
+
+      playControlsContainer.addChild(bpmSliderContainer);
+
+      controlsContainer.addChild(playControlsContainer);
+
+      controlsContainer.y = stepSizePx / 2;
       controlsContainer.x = 24;
 
       app.stage.addChild(controlsContainer);
@@ -194,16 +231,27 @@ const BeatMaker = () => {
       }
 
       function tick(delta: Ticker) {
+        totalMS = (totalSteps / (bpm / 60)) * 1000;
+        fractionMS = totalMS / totalSteps;
         msUntilNextBeat -= delta.deltaMS;
         currentTimeMS += delta.deltaMS;
+
         if (msUntilNextBeat <= 0) {
           msUntilNextBeat = fractionMS;
 
           if (currentStep === totalSteps - 1) {
             currentStep = 0;
             currentTimeMS = 0;
+            gsap.to(playhead, {
+              x: 0,
+              duration: 0.1,
+            });
           } else {
             currentStep++;
+            gsap.to(playhead, {
+              x: playhead.x + stepSizePx + 16,
+              duration: 0.2,
+            });
           }
 
           for (const key in sequencerData) {
@@ -213,14 +261,12 @@ const BeatMaker = () => {
             }
           }
         }
-
-        playhead.position.x = (currentTimeMS / totalMS) * (timelineBar.width - playheadSize);
       }
     }
 
-    function createSlider(sample: SequencerKey, min: number, max: number, icon: Sprite) {
+    function createVolumeSlider(sample: SequencerKey, min: number, max: number, icon: Sprite) {
       const sliderContainer = new Container();
-      sliderContainer.label = 'slider-container';
+      sliderContainer.label = 'volume-slider-container';
 
       const sliderFill = new Graphics()
         .roundRect(0, 0, 150, 16, 2)
@@ -312,8 +358,8 @@ const BeatMaker = () => {
       const stepsData: StepRow = [];
 
       for (let i = 0; i < stepsCount; i++) {
-        const singleStepContainer = createStep(stepSize, theme.stepBG, [theme.dark]);
-        singleStepContainer.position.x = (stepSize + 16) * i;
+        const singleStepContainer = createStep(stepSizePx, theme.stepBG, [theme.dark]);
+        singleStepContainer.position.x = (stepSizePx + 16) * i;
         singleStepContainer.interactive = true;
         singleStepContainer.cursor = 'pointer';
 
@@ -333,13 +379,13 @@ const BeatMaker = () => {
         let newStep: ContainerChild | null;
         if (newToggleState === true) {
           newStep = createStep(
-            stepSize,
+            stepSizePx,
             theme.stroke,
             [theme.gradientOne, theme.gradientTwo],
             true
           );
         } else {
-          newStep = createStep(stepSize, theme.stepBG, [theme.dark]);
+          newStep = createStep(stepSizePx, theme.stepBG, [theme.dark]);
         }
 
         if (currentStepDataIndex !== -1) {
